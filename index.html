@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>自製電子書 - 〈獵人〉提問單</title>
+  <style>
+    @page { size: A4; margin: 12mm 15mm; }
+    * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    body {
+      margin: 0; padding: 0; background-color: #e2e8f0;
+      font-family: "Times New Roman", "標楷體", "DFKai-SB", "BiauKai", serif;
+      font-size: 14pt; line-height: 1.5; color: #111;
+    }
+
+    /* 課堂懸浮工具列 (純 Emoji 極簡膠囊) */
+    .classroom-toolbar {
+      position: fixed; top: 14px; right: 20px; z-index: 9999;
+      display: flex; align-items: center; gap: 3px;
+      background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      padding: 4px 8px; border-radius: 40px;
+      border: 1px solid rgba(203, 213, 225, 0.9);
+      box-shadow: 0 4px 22px rgba(0, 0, 0, 0.12);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    .tool-btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 36px; height: 36px; font-size: 18px; color: #334155;
+      background: transparent; border: 1px solid transparent; border-radius: 50%;
+      cursor: pointer; transition: all 0.15s ease; padding: 0; user-select: none;
+    }
+    .tool-btn:hover { background: #f1f5f9; transform: scale(1.1); }
+    .tool-btn.active { background: #0f172a; color: #ffffff; }
+    .btn-toggle-ans.active { background: #eff6ff; border-color: #3b82f6; }
+    .toolbar-divider { width: 1px; height: 18px; background: #cbd5e1; margin: 0 3px; }
+
+    /* 章節目錄跳轉選單 */
+    .toc-menu {
+      display: none; position: absolute; top: 46px; left: 0;
+      background: #ffffff; border: 1px solid #cbd5e1; border-radius: 12px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.18); padding: 6px 0;
+      min-width: 260px; max-height: 420px; overflow-y: auto; z-index: 10000;
+    }
+    .toc-menu.show { display: block; animation: tocFadeIn 0.15s ease-out; }
+    @keyframes tocFadeIn {
+      from { opacity: 0; transform: translateY(-6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .toc-menu-title {
+      padding: 6px 16px 8px 16px; font-size: 13px; font-weight: bold;
+      color: #64748b; border-bottom: 1px solid #f1f5f9;
+    }
+    .toc-menu-item {
+      padding: 8px 16px; font-size: 14px; color: #334155; cursor: pointer;
+      display: flex; align-items: center; justify-content: space-between;
+      transition: background 0.12s, color 0.12s;
+    }
+    .toc-menu-item:hover { background: #eff6ff; color: #2563eb; font-weight: bold; }
+    .toc-page-badge { font-size: 12px; color: #94a3b8; font-weight: normal; }
+    .toc-menu-item:hover .toc-page-badge { color: #2563eb; }
+
+    /* 畫筆面板 */
+    .pen-options {
+      display: none; align-items: center; gap: 6px; background: #f8fafc;
+      padding: 3px 8px; border-radius: 20px; border: 1px solid #e2e8f0; margin-left: 2px;
+    }
+    .color-picker { display: flex; align-items: center; gap: 5px; }
+    .color-dot {
+      width: 16px; height: 16px; border-radius: 50%; cursor: pointer;
+      box-shadow: inset 0 0 0 1px rgba(0,0,0,0.2);
+    }
+    .color-dot.active { transform: scale(1.2); box-shadow: 0 0 0 2px #0f172a; }
+    .size-picker { display: flex; align-items: center; gap: 3px; }
+    .size-btn {
+      border: 1px solid #cbd5e1; background: #fff; color: #475569; font-size: 11px;
+      font-weight: bold; padding: 2px 7px; border-radius: 10px; cursor: pointer;
+    }
+    .size-btn.active { background: #0f172a; color: #fff; border-color: #0f172a; }
+
+    /* A4 頁面容器 */
+    .pages-container { padding: 20px 0 40px 0; }
+    .page {
+      width: 210mm; min-height: 297mm; padding: 14mm 16mm; margin: 0 auto 25px auto;
+      background: #ffffff; box-shadow: 0 6px 16px rgba(0,0,0,0.15);
+      page-break-after: always; break-after: page; position: relative;
+    }
+    .drawing-canvas {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      z-index: 20; pointer-events: none;
+    }
+    body.pen-mode .drawing-canvas { pointer-events: auto; cursor: crosshair; }
+
+    /* 頁面標題與結構 */
+    .page-header {
+      display: flex; justify-content: space-between; border-bottom: 2px solid #334155;
+      padding-bottom: 6px; margin-bottom: 10px; font-size: 13pt; font-weight: bold;
+    }
+    .main-title { font-size: 20pt; font-weight: 900; text-align: center; margin: 6px 0 12px 0; }
+    .section-title {
+      font-size: 15pt; font-weight: bold; background: #e2e8f0; padding: 5px 10px;
+      border-radius: 6px; margin: 10px 0 8px 0; border-left: 6px solid #2563eb;
+    }
+    .task-title { font-size: 14pt; font-weight: bold; margin: 8px 0 6px 0; }
+    .tip-box {
+      border: 1.5px solid #93c5fd; background-color: #eff6ff; border-radius: 6px;
+      padding: 8px 12px; margin: 6px 0 10px 0; font-size: 12.5pt; line-height: 1.5;
+    }
+    .item-line { padding: 4px 6px; border-radius: 4px; line-height: 1.5; font-size: 14pt; }
+    body:not(.pen-mode) .interactive-item { cursor: pointer; }
+    body:not(.pen-mode) .interactive-item:hover { background-color: #f8fafc; outline: 1px dashed #93c5fd; }
+
+    /* 解答樣式：紅筆圈選與填入 */
+    .correct-choice { display: inline-block; padding: 0 4px; transition: all 0.2s; }
+    .show-ans .correct-choice, .item-line.show-one .correct-choice, .qa-block.show-one .correct-choice, .interactive-item.show-one .correct-choice {
+      color: #dc2626 !important; font-weight: bold !important; border: 2px solid #dc2626 !important;
+      border-radius: 14px !important; background-color: #fef2f2 !important; padding: 0 6px !important;
+    }
+    .ans-slot { display: inline-block; min-width: 24px; text-align: center; color: transparent; font-weight: bold; }
+    .show-ans .ans-slot, .item-line.show-one .ans-slot, .qa-block.show-one .ans-slot, .interactive-item.show-one .ans-slot { color: #dc2626 !important; }
+    .ans-word { color: transparent; font-weight: bold; border-bottom: 1.5px solid #333; padding: 0 6px; }
+    .show-ans .ans-word, .item-line.show-one .ans-word, .interactive-item.show-one .ans-word { color: #dc2626 !important; }
+
+    /* 選擇題垂直對齊結構 */
+    .qa-block { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 10px; padding: 6px 8px; }
+    .qa-bracket { flex-shrink: 0; width: 54px; text-align: center; font-weight: bold; font-size: 14pt; }
+    .qa-content { flex: 1; }
+    .qa-options { display: flex; flex-direction: column; gap: 3px; margin-top: 4px; }
+
+    table.custom-table { width: 100%; border-collapse: collapse; margin: 8px 0 12px 0; font-size: 13.5pt; }
+    table.custom-table th, table.custom-table td { border: 1px solid #475569; padding: 6px 10px; text-align: center; }
+    table.custom-table th { background-color: #e2e8f0; font-weight: bold; }
+
+    .toast-notice {
+      position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+      background: #0f172a; color: #fff; padding: 10px 20px; border-radius: 30px;
+      font-size: 13px; z-index: 10000; box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+      display: none; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    /* 列印強制隱藏解答、目錄與工具列 */
+    @media print {
+      body { background: transparent !important; padding: 0 !important; }
+      .no-print, .classroom-toolbar, .toc-menu, .drawing-canvas { display: none !important; }
+      .page { margin: 0 !important; box-shadow: none !important; width: 100% !important; min-height: auto !important; padding: 0 !important; }
+      .correct-choice { color: inherit !important; font-weight: normal !important; border: none !important; background: transparent !important; padding: 0 !important; }
+      .ans-slot, .ans-word { color: transparent !important; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="classroom-toolbar no-print">
+    <!-- 1. 目錄跳轉按鈕 -->
+    <div style="position: relative;">
+      <button class="tool-btn" id="tocBtn" onclick="toggleTocMenu(event)" title="章節目錄導覽">📑</button>
+      <div class="toc-menu" id="tocMenu">
+        <div class="toc-menu-title">📖 單元章節目錄</div>
+        <div class="toc-menu-item" onclick="jumpTo('page-1')"><span>一、會考題實戰與原住民文學</span><span class="toc-page-badge">P.1</span></div>
+        <div class="toc-menu-item" onclick="jumpTo('sec-rhetoric1')"><span>二、譬喻修辭分析（1-2段）</span><span class="toc-page-badge">P.2</span></div>
+        <div class="toc-menu-item" onclick="jumpTo('sec-rhetoric2')"><span>三、譬喻修辭分析（7-10段）</span><span class="toc-page-badge">P.2</span></div>
+        <div class="toc-menu-item" onclick="jumpTo('sec-boar')"><span>四、作者與山豬對決</span><span class="toc-page-badge">P.3</span></div>
+        <div class="toc-menu-item" onclick="jumpTo('sec-property')"><span>五、好獵人的財產分析</span><span class="toc-page-badge">P.3</span></div>
+        <div class="toc-menu-item" onclick="jumpTo('sec-reflection')"><span>六、學習省思與心得</span><span class="toc-page-badge">P.4</span></div>
+      </div>
+    </div>
+
+    <!-- 2. 答案開關 -->
+    <button class="tool-btn btn-toggle-ans" id="toggleAllAnsBtn" onclick="toggleAllAnswers()" title="一鍵全開/全隱答案">
+      <span id="ansIcon">👁️</span>
+    </button>
+    
+    <!-- 3. 畫筆開關 -->
+    <button class="tool-btn" id="penBtn" onclick="togglePenMode()" title="螢光筆/板書筆">✏️</button>
+    
+    <!-- 4. 畫筆選單 (顏色與粗細) -->
+    <div class="pen-options" id="penOptions">
+      <div class="color-picker">
+        <span class="color-dot active" style="background:#facc15;" onclick="setPenColor('rgba(250, 204, 21, 0.45)', this)" title="螢光黃"></span>
+        <span class="color-dot" style="background:#ef4444;" onclick="setPenColor('rgba(239, 68, 68, 0.8)', this)" title="紅筆"></span>
+        <span class="color-dot" style="background:#3b82f6;" onclick="setPenColor('rgba(37, 99, 235, 0.8)', this)" title="藍筆"></span>
+        <span class="color-dot" style="background:#10b981;" onclick="setPenColor('rgba(16, 185, 129, 0.8)', this)" title="綠筆"></span>
+      </div>
+      <div style="width:1px; height:14px; background:#cbd5e1; margin:0 2px;"></div>
+      <div class="size-picker">
+        <button class="size-btn" onclick="setPenSize(4, this)">細</button>
+        <button class="size-btn" onclick="setPenSize(10, this)">中</button>
+        <button class="size-btn active" onclick="setPenSize(20, this)">粗</button>
+      </div>
+    </div>
+    
+    <!-- 5. 清除畫跡 -->
+    <button class="tool-btn" onclick="clearAllDrawings()" title="清除本卷筆跡">🧹</button>
+    <div class="toolbar-divider"></div>
+    
+    <!-- 6. 純淨列印 -->
+    <button class="tool-btn" onclick="smartPrint()" title="列印純淨學生白紙卷">🖨️</button>
+
+    <!-- 7. 新分頁全螢幕開啟 -->
+    <button class="tool-btn" onclick="openInNewTab()" title="在全螢幕獨立分頁中授課">↗</button>
+  </div>
+
+  <div id="toastNotice" class="toast-notice"></div>
+
+  <div class="pages-container">
+    
+    <!-- PAGE 1 -->
+    <div class="page" id="page-1">
+      <canvas class="drawing-canvas"></canvas>
+      <div class="page-header">
+        <span>座號：_______ 姓名：_____________</span>
+        <span>第 1 頁</span>
+      </div>
+
+      <div class="main-title">〈獵人〉提問單</div>
+
+      <!-- 會考題 -->
+      <div class="section-title" id="sec-exam">● 會考題觀摩與實戰</div>
+
+      <div class="qa-block interactive-item" onclick="toggleItemAnswer(this)">
+        <div class="qa-bracket">（<span class="ans-slot">A</span>）</div>
+        <div class="qa-content">
+          <div><b>19.</b> 「傳統布農族社會在舉行重大的祭儀活動前，族人會聚集在一起用木杵搗米準備製作小米酒，發現不同的木杵會產生不同的聲響，因而將其作為合奏的樂器。後來每當族人聽到杵音傳來，就知道最近聚落即將舉辦慶典，杵音也因而具有傳遞訊息的功能。」根據這段文字，下列關於傳統布農族社會的推論，何者最恰當？ 【112會考】</div>
+          <div class="qa-options">
+            <span class="correct-choice">(A) 舉行重大慶典需要小米酒</span>
+            <span>(B) 透過傳遞木杵來交換訊息</span>
+            <span>(C) 依祭儀種類飲用不同的米酒</span>
+            <span>(D) 以整齊的杵音宣告祭儀開始</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="qa-block interactive-item" onclick="toggleItemAnswer(this)">
+        <div class="qa-bracket">（<span class="ans-slot">A</span>）</div>
+        <div class="qa-content">
+          <div><b>3.</b> 「臺灣原住民的布只有形制屬傳統或較現代的分別，像圓領的剪裁、鈕扣和棉布的使用等，都是受漢人的影響再來。泰雅族的珍珠鈴衣，是珍珠串底下加銅鈴裝飾，銅鈴也是和漢人交易再來。日治時代的原住民服裝，還出現以漢人棉布做底、日本布做袖口、原住民圖案做主要裝飾的混搭法。」這段文字的主旨最可能是下列何者？ 【110會考】</div>
+          <div class="qa-options">
+            <span class="correct-choice">(A) 不同文化的碰撞，可融合並產生新的火花</span>
+            <span>(B) 外來文化的入侵，讓在地的傳統文化日漸消失</span>
+            <span>(C) 臺灣原住民的文化，影響了漢人與日本人的穿著</span>
+            <span>(D) 觀察不同族群的服飾，就能了解不同文化的差異</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 原住民文學 -->
+      <div class="section-title" id="sec-indigenous">● 原住民文學概況與自學閱讀預測</div>
+      
+      <div class="tip-box">
+        <b>💡 原住民文學定義：</b><br>
+        目前，「原住民文學」並不以題材來界定，凡具備<b>原住民身分</b>的作家所寫的作品，不論內容描寫山林獵事、都會經歷乃至精靈魔幻，都歸屬原住民文學範疇。至於書寫工具上，則<b>不限定</b>採用哪種語言或文字，漢語或族語拼音創作皆是當代原住民文化傳續努力的途徑。（資料來源：臺灣文學虛擬博物館）
+      </div>
+
+      <div class="interactive-item" onclick="toggleItemAnswer(this)">
+        <div class="task-title">1. 請依據文章題目〈獵人〉，拆解可能出現的內容：</div>
+        <table class="custom-table">
+          <tr>
+            <th style="width: 25%;">標題拆解</th>
+            <th style="width: 75%;">獵人</th>
+          </tr>
+          <tr>
+            <th>解釋（內容分類）</th>
+            <td><span class="ans-word">人 ｜ 事 ｜ 情</span></td>
+          </tr>
+          <tr>
+            <th>預測</th>
+            <td><span class="ans-word">原住民打獵、山豬、自然保育</span></td>
+          </tr>
+        </table>
+      </div>
+
+      <div class="interactive-item" onclick="toggleItemAnswer(this)">
+        <div class="task-title">2. 請猜測本文可能以何種表述手法為主？並據此寫出相對應的內容。</div>
+        <div class="item-line">
+          <span class="correct-choice">☑ 記敘：介紹打獵的過程</span> &nbsp;&nbsp;&nbsp;&nbsp;
+          <span class="correct-choice">☑ 抒情：尊重生命、與自然共存</span><br>
+          ☐ 議論：________________________ &nbsp;&nbsp;&nbsp;&nbsp; ☐ 說明：________________________
+        </div>
+      </div>
+
+      <div class="interactive-item" onclick="toggleItemAnswer(this)">
+        <div class="task-title">3. 請自學課文後完成表格：</div>
+        <table class="custom-table">
+          <tr>
+            <th style="width: 35%;">閱讀文本前自問</th>
+            <th>概覽文本後自答</th>
+          </tr>
+          <tr>
+            <td style="text-align: left;">
+              人：提到什麼、哪些人？<br>
+              事：主要寫什麼事？<br>
+              時：什麼時候？重要時間點？<br>
+              地：在哪裡？重要地點？<br>
+              物：提到了哪些重要事物？<br>
+              情：作者主要寫出什麼感情？<br>
+              理：寫出什麼道理？
+            </td>
+            <td style="text-align: left;">
+              人：<span class="ans-word">作者、亞隆·諾基斯</span><br>
+              事：<span class="ans-word">獵人試煉的成年禮</span><br>
+              時：<span class="ans-word">暑假、入睡前</span><br>
+              地：<span class="ans-word">八雅鞍部山脈的肩膀</span><br>
+              物：<span class="ans-word">狐狸(果子狸)、飛鼠、番刀、鹽巴、山豬</span><br>
+              情：<span class="ans-word">對小山豬的不忍之情</span><br>
+              理：<span class="ans-word">勇敢、智慧、愛，是好獵人的全部財產，維護生態平衡</span>
+            </td>
+          </tr>
+        </table>
+      </div>
+
+    </div>
+
+    <!-- PAGE 2 -->
+    <div class="page" id="page-2">
+      <canvas class="drawing-canvas"></canvas>
+      <div class="page-header">
+        <span>座號：_______ 姓名：_____________</span>
+        <span>第 2 頁</span>
+      </div>
+
+      <div class="section-title" id="sec-structure">● 閱讀理解：合併意義段與修辭解析</div>
+
+      <div class="interactive-item" onclick="toggleItemAnswer(this)">
+        <div class="task-title">1. 合併意義段分析：</div>
+        <table class="custom-table">
+          <tr>
+            <th>主題</th>
+            <th colspan="2">獵人試煉 (成年禮)</th>
+          </tr>
+          <tr>
+            <th style="width: 25%;">段落（意義段）</th>
+            <th style="width: 75%;">重點（面向）</th>
+          </tr>
+          <tr>
+            <td>1-6 段 (狩獵前)</td>
+            <td><span class="ans-word">描述抵達目的地、野炊、過夜、狩獵緣由</span></td>
+          </tr>
+          <tr>
+            <td>7-11 段 (狩獵過程)</td>
+            <td><span class="ans-word">作者追捕山豬失敗</span></td>
+          </tr>
+          <tr>
+            <td>12-15 段 (狩獵後)</td>
+            <td><span class="ans-word">老獵人的教誨與啟示</span></td>
+          </tr>
+        </table>
+      </div>
+
+      <!-- 修辭解析 1-2段 -->
+      <div class="section-title" id="sec-rhetoric1">● 第一段至第二段：譬喻修辭分析</div>
+
+      <div class="interactive-item" onclick="toggleItemAnswer(this)">
+        <div class="task-title">2. 請統整第一段至第二段使用之譬喻修辭及傳達含義：</div>
+        <table class="custom-table">
+          <tr>
+            <th style="width: 15%;">段落</th>
+            <th style="width: 45%;">課文文句</th>
+            <th style="width: 40%;">含義</th>
+          </tr>
+          <tr>
+            <td>第一段</td>
+            <td>整片天空宛如張大翅膀的（<span class="ans-word">蒼鷹</span>）迅速撲掠而下</td>
+            <td>給人（<span class="ans-word">壓迫感</span>），暗示此次狩獵的緊張和壓力。</td>
+          </tr>
+          <tr>
+            <td rowspan="3">第二段</td>
+            <td>雅隆．諾基斯把命令像（<span class="ans-word">流星</span>）拋進我的耳朵裡</td>
+            <td>一閃即逝的「流星」，形容老獵人的話（<span class="ans-word">簡潔有力</span>）。</td>
+          </tr>
+          <tr>
+            <td>身影已像是隻（<span class="ans-word">蝙蝠</span>）飄然消逝在林子裡</td>
+            <td>以「蝙蝠」形容老獵人行動（<span class="ans-word">迅速、難以預測</span>）。</td>
+          </tr>
+          <tr>
+            <td>老獵人（<span class="ans-word">枯藤</span>）一般的左手已拎了隻狐狸</td>
+            <td>「枯藤」般的手，顯示獵人（<span class="ans-word">年紀大</span>）。</td>
+          </tr>
+        </table>
+      </div>
+
+      <div class="interactive-item" onclick="toggleItemAnswer(this)">
+        <div class="task-title">3. 依據第五段，為什麼「狩獵對泰雅男人是莊嚴的事」？</div>
+        <div class="item-line">
+          <b>(1) 提供溫飽：</b> <span class="ans-word">沒有獵物就餵不飽家人。</span><br>
+          <b>(2) 勇者象徵：</b> <span class="ans-word">證明自己擁有勇武犯難的精神。</span>
+        </div>
+      </div>
+
+      <!-- 修辭解析 7-10段 -->
+      <div class="section-title" id="sec-rhetoric2">● 第七段至第十段：譬喻修辭分析</div>
+
+      <div class="interactive-item" onclick="toggleItemAnswer(this)">
+        <div class="task-title">4. 請統整第七段至第十段之譬喻修辭及傳達含義：</div>
+        <table class="custom-table">
+          <tr>
+            <th style="width: 15%;">段落</th>
+            <th style="width: 45%;">課文文句</th>
+            <th style="width: 40%;">含義</th>
+          </tr>
+          <tr>
+            <td>第七段</td>
+            <td>我便像是在大海中猶豫的扁舟</td>
+            <td>扁舟浮沉顯示無老獵人陪伴的（<span class="ans-word">徬徨、無助</span>）。</td>
+          </tr>
+          <tr>
+            <td rowspan="2">第九段</td>
+            <td>我的長矛像頭豹奔出去</td>
+            <td>表現投擲長矛的力量（<span class="ans-word">大</span>）、速度（<span class="ans-word">快</span>）。</td>
+          </tr>
+          <tr>
+            <td>把我的身軀像葉片般撥開</td>
+            <td>顯現作者身為人類，在面對野獸時的（<span class="ans-word">渺小無力</span>）。</td>
+          </tr>
+          <tr>
+            <td>第十段</td>
+            <td>我像壁虎般趴著伏著</td>
+            <td>顯示作者等待的時間（<span class="ans-word">長</span>）、動作（<span class="ans-word">低矮</span>），顯示狩獵辛苦。</td>
+          </tr>
+        </table>
+      </div>
+
+    </div>
+
+    <!-- PAGE 3 -->
+    <div class="page" id="page-3">
+      <canvas class="drawing-canvas"></canvas>
+      <div class="page-header">
+        <span>座號：_______ 姓名：_____________</span>
+        <span>第 3 頁</span>
+      </div>
+
+      <div class="section-title" id="sec-boar">● 深度理解：對決與呼應</div>
+
+      <div class="interactive-item" onclick="toggleItemAnswer(this)">
+        <div class="task-title">5. 在前面的段落中，作者曾提及「似乎有一對眼睛審視著我」，可與第十三、十四段哪些部分相呼應？</div>
+        <div class="item-line">
+          <b>(1) 「還懊惱著嗎」：</b> <span class="ans-word">可以看出老獵人在作者未說明結果前便已知道結果。</span><br>
+          <b>(2) 「牠是這座山最後的山豬，也是最凶猛的」：</b> <span class="ans-word">老獵人目睹作者與山豬搏鬥的過程。</span>
+        </div>
+      </div>
+
+      <div class="interactive-item" onclick="toggleItemAnswer(this)">
+        <div class="task-title">6. 請統整依據第九段至第十一段，完成作者與山豬的對決分析：</div>
+        <table class="custom-table">
+          <tr>
+            <th>對決輪次</th>
+            <th>作者</th>
+            <th>山豬</th>
+            <th>結果</th>
+          </tr>
+          <tr>
+            <td><b>第一次對決</b></td>
+            <td>（作者）擲的長矛像頭豹奔出去</td>
+            <td>（山豬）把我的身軀像葉片般撥開</td>
+            <td><span class="ans-word">雙方受傷，山豬逃逸</span></td>
+          </tr>
+          <tr>
+            <td><b>第二次對決</b></td>
+            <td>像壁虎般趴著伏著，等待給予致命的一擊</td>
+            <td>帶著小豬前往溪邊喝水</td>
+            <td><span class="ans-word">作者放過山豬</span></td>
+          </tr>
+        </table>
+      </div>
+
+      <!-- 核心精神 -->
+      <div class="section-title" id="sec-property">● 好獵人的全部財產</div>
+
+      <div class="interactive-item" onclick="toggleItemAnswer(this)">
+        <div class="task-title">7. 老獵人說：「勇敢、智慧與愛就是一個好獵人的全部財產」，請根據文章內容舉例佐證：</div>
+        <table class="custom-table">
+          <tr>
+            <th style="width: 25%;">財產</th>
+            <th style="width: 75%;">文章佐證例子</th>
+          </tr>
+          <tr>
+            <td><b>勇敢</b></td>
+            <td style="text-align: left;"><span class="ans-word">勇於面對山豬，即使受傷也能勇往直前。</span></td>
+          </tr>
+          <tr>
+            <td><b>智慧</b></td>
+            <td style="text-align: left;"><span class="ans-word">懂得與自然共處，重視山豬的繁衍，不會趕盡殺絕。</span></td>
+          </tr>
+          <tr>
+            <td><b>愛</b></td>
+            <td style="text-align: left;"><span class="ans-word">面對帶著三隻小豬的山豬而心軟，這是一種尊重生命的仁愛表現。</span></td>
+          </tr>
+        </table>
+      </div>
+
+    </div>
+
+    <!-- PAGE 4 -->
+    <div class="page" id="page-4">
+      <canvas class="drawing-canvas"></canvas>
+      <div class="page-header">
+        <span>座號：_______ 姓名：_____________</span>
+        <span>第 4 頁</span>
+      </div>
+
+      <div class="section-title" id="sec-reflection">● 挑戰與省思筆記</div>
+
+      <div class="interactive-item" onclick="toggleItemAnswer(this)">
+        <div class="task-title">1. 本課精神延伸思考：獵人與自然的相處之道</div>
+        <div class="tip-box">
+          老獵人的教導不僅僅是狩獵技術，更是一種生命倫理。請回顧課文，並回答：作者從放走山豬與老獵人的談話中，學到了什麼樣的自然觀？
+        </div>
+        <div class="item-line">
+          答：<span class="ans-word">人類不應以統治者自居，而要學會敬畏自然、與萬物和平共處，取之有度，保留生態永續的生機。</span>
+        </div>
+      </div>
+
+      <div style="margin-top: 30px; padding: 20px; border: 1.5px dashed #cbd5e1; border-radius: 12px; background: #fafafa;">
+        <div style="font-weight: bold; color: #334155; font-size: 15pt; margin-bottom: 12px; display: flex; align-items: center; gap: 6px;">
+          <span>💡</span> 學習省思筆記（請寫下閱讀本課後的個人感悟與收穫）：
+        </div>
+        <div style="height: 110px; border-bottom: 1px dashed #cbd5e1; margin-bottom: 12px;"></div>
+        <div style="height: 110px; border-bottom: 1px dashed #cbd5e1; margin-bottom: 12px;"></div>
+        <div style="height: 110px; border-bottom: 1px dashed #cbd5e1;"></div>
+      </div>
+
+    </div>
+
+  </div>
+
+  <script>
+    // 0. 目錄面板切換與平滑跳轉
+    function toggleTocMenu(e) {
+      if (e) e.stopPropagation();
+      const menu = document.getElementById('tocMenu');
+      if (menu) menu.classList.toggle('show');
+    }
+
+    function jumpTo(targetId) {
+      const el = document.getElementById(targetId);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+      const menu = document.getElementById('tocMenu');
+      if (menu) menu.classList.remove('show');
+    }
+
+    document.addEventListener('click', (e) => {
+      const menu = document.getElementById('tocMenu');
+      const btn = document.getElementById('tocBtn');
+      if (menu && menu.classList.contains('show')) {
+        if (!menu.contains(e.target) && e.target !== btn) {
+          menu.classList.remove('show');
+        }
+      }
+    });
+
+    // 1. 逐題點擊顯現答案
+    function toggleItemAnswer(el) {
+      if (document.body.classList.contains('pen-mode')) return;
+      el.classList.toggle('show-one');
+    }
+
+    // 2. 一鍵全開 / 全隱答案
+    var isAllAnsShown = false;
+    function toggleAllAnswers() {
+      isAllAnsShown = !isAllAnsShown;
+      var container = document.querySelector('.pages-container');
+      var btn = document.getElementById('toggleAllAnsBtn');
+      var btnIcon = document.getElementById('ansIcon');
+      if (isAllAnsShown) {
+        container.classList.add('show-ans'); btn.classList.add('active'); btnIcon.textContent = '🙈';
+      } else {
+        container.classList.remove('show-ans'); btn.classList.remove('active'); btnIcon.textContent = '👁️';
+        document.querySelectorAll('.show-one').forEach(function(item) { item.classList.remove('show-one'); });
+      }
+    }
+
+    // 3. 畫筆工具
+    var isPenMode = false;
+    var currentPenColor = 'rgba(250, 204, 21, 0.45)';
+    var currentPenSize = 20;
+    function setPenColor(color, el) {
+      currentPenColor = color;
+      document.querySelectorAll('.color-dot').forEach(function(d) { d.classList.remove('active'); });
+      el.classList.add('active');
+    }
+    function setPenSize(size, el) {
+      currentPenSize = size;
+      document.querySelectorAll('.size-btn').forEach(function(b) { b.classList.remove('active'); });
+      el.classList.add('active');
+    }
+    function togglePenMode() {
+      isPenMode = !isPenMode;
+      document.body.classList.toggle('pen-mode', isPenMode);
+      var penBtn = document.getElementById('penBtn');
+      var penOptions = document.getElementById('penOptions');
+      if (isPenMode) { penBtn.classList.add('active'); if (penOptions) penOptions.style.display = 'flex'; }
+      else { penBtn.classList.remove('active'); if (penOptions) penOptions.style.display = 'none'; }
+    }
+    function initCanvases() {
+      document.querySelectorAll('.page').forEach(function(page) {
+        var canvas = page.querySelector('.drawing-canvas');
+        if (!canvas) return;
+        var ctx = canvas.getContext('2d');
+        function resizeCanvas() { canvas.width = page.clientWidth; canvas.height = page.clientHeight; }
+        resizeCanvas(); window.addEventListener('resize', resizeCanvas);
+        var isDrawing = false, lastX = 0, lastY = 0;
+        canvas.addEventListener('mousedown', function(e) {
+          if (!isPenMode) return; isDrawing = true;
+          var rect = canvas.getBoundingClientRect(); lastX = e.clientX - rect.left; lastY = e.clientY - rect.top;
+        });
+        canvas.addEventListener('mousemove', function(e) {
+          if (!isDrawing || !isPenMode) return;
+          var rect = canvas.getBoundingClientRect(); var currX = e.clientX - rect.left; var currY = e.clientY - rect.top;
+          ctx.beginPath(); ctx.moveTo(lastX, lastY); ctx.lineTo(currX, currY);
+          ctx.strokeStyle = currentPenColor; ctx.lineWidth = currentPenSize; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.stroke();
+          lastX = currX; lastY = currY;
+        });
+        window.addEventListener('mouseup', function() { isDrawing = false; });
+      });
+    }
+    window.addEventListener('load', initCanvases);
+    function clearAllDrawings() {
+      document.querySelectorAll('.drawing-canvas').forEach(function(canvas) {
+        var ctx = canvas.getContext('2d'); ctx.clearRect(0, 0, canvas.width, canvas.height);
+      });
+    }
+
+    function showToast(msg) {
+      var toast = document.getElementById('toastNotice');
+      if (!toast) return;
+      toast.textContent = msg;
+      toast.style.display = 'block';
+      setTimeout(function() { toast.style.display = 'none'; }, 3000);
+    }
+
+    // 4. 智慧新分頁純淨輸出白紙卷
+    function getCleanWorksheetHTML(triggerPrintImmediately) {
+      var clonedDoc = document.documentElement.cloneNode(true);
+      var container = clonedDoc.querySelector('.pages-container');
+      if (container) container.classList.remove('show-ans');
+      clonedDoc.querySelectorAll('.show-one').forEach(function(item) {
+        item.classList.remove('show-one');
+      });
+      var toast = clonedDoc.querySelector('#toastNotice');
+      if (toast) toast.remove();
+
+      if (triggerPrintImmediately) {
+        var autoPrintScript = document.createElement('script');
+        autoPrintScript.textContent = 'window.addEventListener("load", function() { setTimeout(function() { window.print(); }, 400); });';
+        clonedDoc.querySelector('body').appendChild(autoPrintScript);
+      }
+      return '<!DOCTYPE html>\n<html lang="zh-TW">' + clonedDoc.innerHTML + '</html>';
+    }
+
+    function smartPrint() {
+      try {
+        var htmlContent = getCleanWorksheetHTML(true);
+        var blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
+        var blobUrl = URL.createObjectURL(blob);
+        var win = window.open(blobUrl, '_blank');
+        if (!win) {
+          showToast('若列印視窗未跳出，請點擊「↗」或允許彈跳視窗！');
+          window.print();
+        }
+      } catch (e) {
+        window.print();
+      }
+    }
+
+    function openInNewTab() {
+      try {
+        var htmlContent = getCleanWorksheetHTML(false);
+        var blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
+        var blobUrl = URL.createObjectURL(blob);
+        var win = window.open(blobUrl, '_blank');
+        if (!win) {
+          showToast('請允許瀏覽器彈出式視窗，以順利在新分頁打開講義！');
+        }
+      } catch (e) {
+        showToast('無法在新分頁開啟，請嘗試手動下載。');
+      }
+    }
+  </script>
+</body>
+</html>
